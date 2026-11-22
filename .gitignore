@@ -1,0 +1,4 @@
+target/
+sensitive/
+.env
+.DS_Store
