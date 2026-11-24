@@ -1,8 +1,7 @@
-use diesel_async::{
-	AsyncPgConnection,
-	pooled_connection::{AsyncDieselConnectionManager, deadpool::Pool},
+use salad::{
+	api::{self, AppState},
+	build_pool,
 };
-use salad::api::{self, AppState};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -17,12 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	let db_url = std::env::var("DATABASE_URL")
 		.expect("Environment variables not configured!");
-	let manager =
-		AsyncDieselConnectionManager::<AsyncPgConnection>::new(db_url);
-	let pool = Pool::builder(manager).build()?;
-
-	// Fail at startup, not on the first request, if the database is down.
-	drop(pool.get().await?);
+	let pool = build_pool(db_url).await?;
 
 	if cfg!(debug_assertions) {
 		tracing::warn!(
