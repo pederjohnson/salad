@@ -1,6 +1,7 @@
 use crate::schema::members;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
 #[derive(Queryable, Selectable, Identifiable, Debug)]
 #[diesel(table_name = crate::schema::members)]
@@ -27,9 +28,11 @@ struct NewMember {
 }
 
 /// This is the gateway to creating a new member.
-/// Invalid fields may result in an error, so the row won't be created and the error must be communicated to the user.
-pub fn create_member(
-	conn: &mut PgConnection,
+///
+/// Invalid fields may result in an error, so the row won't be created and
+/// the error must be communicated to the user.
+pub async fn create_member(
+	conn: &mut AsyncPgConnection,
 	net_id: String,
 	first_name: String,
 	last_name: String,
@@ -41,38 +44,44 @@ pub fn create_member(
 		last_name,
 		major,
 	};
-	diesel::insert_into(members::table).values(m).execute(conn)
+	diesel::insert_into(members::table)
+		.values(m)
+		.execute(conn)
+		.await
 }
 
 /// `new_major` must match a `majors.name`, or the update fails.
 /// Pass `None` to clear it.
-pub fn set_member_major(
-	conn: &mut PgConnection,
+pub async fn set_member_major(
+	conn: &mut AsyncPgConnection,
 	target_net_id: &str,
 	new_major: Option<&str>,
 ) -> QueryResult<usize> {
 	diesel::update(members::table.filter(members::net_id.eq(target_net_id)))
 		.set(members::major.eq(new_major))
 		.execute(conn)
+		.await
 }
 
 /// Safe way to add Discord
-pub fn set_member_discord(
-	conn: &mut PgConnection,
+pub async fn set_member_discord(
+	conn: &mut AsyncPgConnection,
 	target_net_id: &str,
 	new_discord: &str,
 ) -> QueryResult<usize> {
 	diesel::update(members::table.filter(members::net_id.eq(target_net_id)))
 		.set(members::discord_id.eq(new_discord))
 		.execute(conn)
+		.await
 }
 
-pub fn set_member_card(
-	conn: &mut PgConnection,
+pub async fn set_member_card(
+	conn: &mut AsyncPgConnection,
 	target_net_id: &str,
 	new_card: &str,
 ) -> QueryResult<usize> {
 	diesel::update(members::table.filter(members::net_id.eq(target_net_id)))
 		.set(members::card_id.eq(new_card))
 		.execute(conn)
+		.await
 }

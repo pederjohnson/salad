@@ -1,5 +1,6 @@
 use chrono::NaiveDate;
 use diesel::prelude::*;
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
 use crate::schema::terms;
 
@@ -15,6 +16,12 @@ pub struct Term {
 	due_date: Option<NaiveDate>,
 }
 
-pub fn create_term(conn: &mut PgConnection, t: &Term) -> QueryResult<usize> {
-	diesel::insert_into(terms::table).values(t).execute(conn)
+pub async fn create_term(
+	conn: &mut AsyncPgConnection,
+	t: &Term,
+) -> QueryResult<usize> {
+	diesel::insert_into(terms::table)
+		.values(t)
+		.execute(conn)
+		.await
 }

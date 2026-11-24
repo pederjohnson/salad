@@ -75,16 +75,17 @@ CREATE TABLE projects (
 -- An officer or lead is a member, so net_id is both the primary key and a
 -- reference to members (at most one staff row per member).
 --
--- Officers have no project; leads must have exactly one. A member cannot
--- be an officer and lead simultaneously (see our constitution).
+-- Officers have no project; leads have exactly one. Because there is one row
+-- per member, nobody can be an officer and a lead at once (see our
+-- constitution).
 --
--- TO DO: rework this so that an officer is just a staff associated with no
--- project. Perhaps make the officer column generated?
+-- `officer` is derived from `project` rather than set by hand, so the two can
+-- never disagree. To make someone an officer, insert a row with project NULL;
+-- to make them a lead, insert a row with their project.
 CREATE TABLE staff (
 	net_id   VARCHAR(9)  PRIMARY KEY REFERENCES members (net_id) ON UPDATE CASCADE ON DELETE RESTRICT,
-	officer  BOOLEAN     NOT NULL, -- Leave no ambiguity whether an addition is a lead or officer!
 	project  TEXT        REFERENCES projects (name) ON UPDATE CASCADE ON DELETE RESTRICT,
-	CONSTRAINT officer_xor_project CHECK (officer = (project IS NULL))
+	officer  BOOLEAN     NOT NULL GENERATED ALWAYS AS (project IS NULL) STORED
 );
 
 CREATE INDEX staff_project_idx ON staff (project);

@@ -31,6 +31,17 @@ pub mod rust_types {
 }
 
 diesel::table! {
+	login_codes (net_id) {
+		#[max_length = 9]
+		net_id -> Varchar,
+		code_hash -> Bytea,
+		created_at -> Timestamptz,
+		expires_at -> Timestamptz,
+		attempts -> Int4,
+	}
+}
+
+diesel::table! {
 	majors (name) {
 		name -> Text,
 		description -> Text,
@@ -61,11 +72,21 @@ diesel::table! {
 }
 
 diesel::table! {
+	sessions (token_hash) {
+		token_hash -> Bytea,
+		#[max_length = 9]
+		net_id -> Varchar,
+		created_at -> Timestamptz,
+		expires_at -> Timestamptz,
+	}
+}
+
+diesel::table! {
 	staff (net_id) {
 		#[max_length = 9]
 		net_id -> Varchar,
-		officer -> Bool,
 		project -> Nullable<Text>,
+		officer -> Bool,
 	}
 }
 
@@ -94,15 +115,19 @@ diesel::table! {
 	}
 }
 
+diesel::joinable!(login_codes -> members (net_id));
 diesel::joinable!(members -> majors (major));
+diesel::joinable!(sessions -> members (net_id));
 diesel::joinable!(staff -> members (net_id));
 diesel::joinable!(staff -> projects (project));
 diesel::joinable!(term_payments -> members (net_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+	login_codes,
 	majors,
 	members,
 	projects,
+	sessions,
 	staff,
 	term_payments,
 	terms,
