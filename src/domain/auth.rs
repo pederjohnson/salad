@@ -2,9 +2,13 @@
 //! See migrations/0003_auth for the flow and the tables.
 
 use chrono::{DateTime, Utc};
+use diesel::deserialize;
 use diesel::dsl::now;
+use diesel::pg::Pg;
 use diesel::prelude::*;
+use diesel::sql_types::{Bool, Nullable, Text};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::schema::{members, sessions, staff};
@@ -96,14 +100,47 @@ pub async fn create_session(
 }
 
 /// What a member can do, from their staff row (if any).
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// In JSON this is `"role": "member" | "lead" | "officer"`, plus
+/// `"project": ...` for a lead. Use `#[serde(flatten)]` to put those fields
+/// directly in the containing object.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "role", rename_all = "lowercase")]
 pub enum Role {
 	Member,
 	Lead { project: String },
 	Officer,
 }
 
-#[derive(Debug, Clone)]
+impl Role {
+	/// The columns to select to load a `Role`, for example
+	/// `.select((members::net_id, Role::columns()))` loads `(String, Role)`.
+	/// The query must left-join `staff`, so that both columns are NULL for
+	/// someone with no staff row.
+	pub fn columns() -> (
+		diesel::dsl::Nullable<staff::officer>,
+		diesel::dsl::Nullable<staff::project>,
+	) {
+		(staff::officer.nullable(), staff::project.nullable())
+	}
+}
+
+/// Lets Diesel build a `Role` from `Role::columns()`.
+impl Queryable<(Nullable<Bool>, Nullable<Text>), Pg> for Role {
+	type Row = (Option<bool>, Option<String>);
+
+	fn build((officer, project): Self::Row) -> deserialize::Result<Self> {
+		Ok(match (officer, project) {
+			(Some(true), _) => Role::Officer,
+			(Some(false), Some(project)) => Role::Lead { project },
+			// officer is generated as `project IS NULL`, so a staff row
+			// with officer = false always has a project.
+			_ => Role::Member,
+		})
+	}
+}
+
+#[derive(Queryable, Debug, Clone)]
 pub struct SessionMember {
 	pub net_id: String,
 	pub first_name: String,
@@ -117,39 +154,19 @@ pub async fn session_member(
 	conn: &mut AsyncPgConnection,
 	token: &str,
 ) -> QueryResult<Option<SessionMember>> {
-	let row: Option<(String, String, String, Option<bool>, Option<String>)> =
-		sessions::table
-			.inner_join(members::table.left_join(staff::table))
-			.filter(sessions::token_hash.eq(sha256(token)))
-			.filter(sessions::expires_at.gt(now))
-			.select((
-				members::net_id,
-				members::first_name,
-				members::last_name,
-				staff::officer.nullable(),
-				staff::project.nullable(),
-			))
-			.first(conn)
-			.await
-			.optional()?;
-
-	Ok(
-		row.map(|(net_id, first_name, last_name, officer, project)| {
-			let role = match (officer, project) {
-				(Some(true), _) => Role::Officer,
-				(Some(false), Some(project)) => Role::Lead { project },
-				// officer is generated as `project IS NULL`, so a staff row
-				// with officer = false always has a project.
-				_ => Role::Member,
-			};
-			SessionMember {
-				net_id,
-				first_name,
-				last_name,
-				role,
-			}
-		}),
-	)
+	sessions::table
+		.inner_join(members::table.left_join(staff::table))
+		.filter(sessions::token_hash.eq(sha256(token)))
+		.filter(sessions::expires_at.gt(now))
+		.select((
+			members::net_id,
+			members::first_name,
+			members::last_name,
+			Role::columns(),
+		))
+		.first(conn)
+		.await
+		.optional()
 }
 
 /// Ends the session for `token`. Does nothing if it doesn't exist.

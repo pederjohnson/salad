@@ -12,6 +12,9 @@ use serde_json::json;
 pub enum AppError {
 	BadRequest(&'static str),
 	Unauthorized,
+	/// Signed in, but not allowed to do this.
+	Forbidden,
+	NotFound(&'static str),
 	Internal(String),
 }
 
@@ -22,6 +25,11 @@ impl IntoResponse for AppError {
 			AppError::Unauthorized => {
 				(StatusCode::UNAUTHORIZED, "Not signed in, or sign-in failed")
 			}
+			AppError::Forbidden => (
+				StatusCode::FORBIDDEN,
+				"You don't have permission to do that",
+			),
+			AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
 			AppError::Internal(detail) => {
 				tracing::error!("internal error: {detail}");
 				(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong")

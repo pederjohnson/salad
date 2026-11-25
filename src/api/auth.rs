@@ -1,4 +1,5 @@
-//! Sign-in endpoints and the `AuthUser` extractor.
+//! Sign-in endpoints. The `AuthUser` extractor they create sessions for is
+//! in extract.rs.
 //!
 //! 1. `POST /api/auth/code` with `{"net_id": "abc123456"}` emails a code to
 //!    abc123456@utdallas.edu.
@@ -8,16 +9,15 @@
 
 use axum::{
 	Json, Router,
-	extract::FromRequestParts,
-	http::{StatusCode, header, request::Parts},
+	http::StatusCode,
 	routing::{get, post},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{AppError, AppState, Db};
-use crate::domain::auth::{self, Role, SessionMember};
+use super::{AppError, AppState, AuthUser, Db};
+use crate::domain::auth::{self, Role};
 
 /// Until sign-in emails are sent, debug builds accept any 6-digit code.
 /// Release builds check the code for real, so nobody can sign in to a
@@ -33,7 +33,7 @@ pub fn router() -> Router<AppState> {
 }
 
 /// Trims and lowercases a NetID, then checks it looks like abc123456.
-fn normalize_net_id(raw: &str) -> Result<String, AppError> {
+pub(super) fn normalize_net_id(raw: &str) -> Result<String, AppError> {
 	let net_id = raw.trim().to_ascii_lowercase();
 	let (letters, digits) = net_id.split_at_checked(3).unwrap_or(("", ""));
 	let valid = letters.len() == 3
@@ -112,61 +112,23 @@ async fn verify_code(
 	Ok(Json(SessionResponse { token, expires_at }))
 }
 
-/// The signed-in member. Add it as a handler argument to require sign-in;
-/// requests without a valid `Authorization: Bearer <token>` get a 401.
-pub struct AuthUser {
-	pub member: SessionMember,
-	token: String,
-}
-
-impl FromRequestParts<AppState> for AuthUser {
-	type Rejection = AppError;
-
-	async fn from_request_parts(
-		parts: &mut Parts,
-		state: &AppState,
-	) -> Result<Self, Self::Rejection> {
-		// TO DO: can this be made simpler?
-		let token = parts
-			.headers
-			.get(header::AUTHORIZATION)
-			.and_then(|v| v.to_str().ok())
-			.and_then(|v| v.strip_prefix("Bearer "))
-			.map(|t| t.trim().to_string())
-			.ok_or(AppError::Unauthorized)?;
-
-		let Db(mut conn) = Db::from_request_parts(parts, state).await?;
-		let member = auth::session_member(&mut conn, &token)
-			.await?
-			.ok_or(AppError::Unauthorized)?;
-		Ok(AuthUser { member, token })
-	}
-}
-
 #[derive(Serialize)]
 struct MeResponse {
 	net_id: String,
 	first_name: String,
 	last_name: String,
-	/// "member", "lead", or "officer"
-	role: &'static str,
-	/// The project a lead runs; null for everyone else.
-	project: Option<String>,
+	/// `"role"`, plus `"project"` for a lead.
+	#[serde(flatten)]
+	role: Role,
 }
 
 async fn me(user: AuthUser) -> Json<MeResponse> {
 	let m = user.member;
-	let (role, project) = match m.role {
-		Role::Member => ("member", None),
-		Role::Lead { project } => ("lead", Some(project)),
-		Role::Officer => ("officer", None),
-	};
 	Json(MeResponse {
 		net_id: m.net_id,
 		first_name: m.first_name,
 		last_name: m.last_name,
-		role,
-		project,
+		role: m.role,
 	})
 }
 
