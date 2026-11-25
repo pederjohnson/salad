@@ -1,15 +1,13 @@
 //! Sign-in by emailed code, and the sessions it creates.
 //! See migrations/0003_auth for the flow and the tables.
 
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
+use diesel::dsl::now;
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use sha2::{Digest, Sha256};
 
 use crate::schema::{members, sessions, staff};
-
-/// How long a session token works before the member must sign in again.
-const SESSION_TTL: TimeDelta = TimeDelta::days(14);
 
 fn sha256(input: &str) -> Vec<u8> {
 	Sha256::digest(input.as_bytes()).to_vec()
@@ -70,13 +68,13 @@ pub async fn redeem_login_code(
 }
 
 /// Starts a session for `net_id` and returns its token (to give to the
-/// client, never stored) and when it expires. Also clears out this member's
-/// expired sessions.
+/// client, never stored) and when it expires. The database sets the expiry
+/// (see the sessions table in migrations/0003_auth). Also clears out this
+/// member's expired sessions.
 pub async fn create_session(
 	conn: &mut AsyncPgConnection,
 	net_id: &str,
 ) -> QueryResult<(String, DateTime<Utc>)> {
-	let now = Utc::now();
 	diesel::delete(
 		sessions::table
 			.filter(sessions::net_id.eq(net_id))
@@ -86,15 +84,13 @@ pub async fn create_session(
 	.await?;
 
 	let token = hex::encode(rand::random::<[u8; 32]>());
-	let expires_at = now + SESSION_TTL;
-	diesel::insert_into(sessions::table)
+	let expires_at = diesel::insert_into(sessions::table)
 		.values((
 			sessions::token_hash.eq(sha256(&token)),
 			sessions::net_id.eq(net_id),
-			sessions::created_at.eq(now),
-			sessions::expires_at.eq(expires_at),
 		))
-		.execute(conn)
+		.returning(sessions::expires_at)
+		.get_result(conn)
 		.await?;
 	Ok((token, expires_at))
 }
@@ -125,7 +121,7 @@ pub async fn session_member(
 		sessions::table
 			.inner_join(members::table.left_join(staff::table))
 			.filter(sessions::token_hash.eq(sha256(token)))
-			.filter(sessions::expires_at.gt(Utc::now()))
+			.filter(sessions::expires_at.gt(now))
 			.select((
 				members::net_id,
 				members::first_name,

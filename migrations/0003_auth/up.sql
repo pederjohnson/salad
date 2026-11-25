@@ -79,12 +79,13 @@ END;
 $$;
 
 -- A member may be signed in on several devices, so several sessions each.
--- Signing out deletes the row.
+-- Signing out deletes the row. A session lasts 14 days, after which the
+-- member must sign in again.
 CREATE TABLE sessions (
 	token_hash  BYTEA        PRIMARY KEY,
 	net_id      VARCHAR(9)   NOT NULL REFERENCES members (net_id) ON UPDATE CASCADE ON DELETE CASCADE,
 	created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
-	expires_at  TIMESTAMPTZ  NOT NULL
+	expires_at  TIMESTAMPTZ  NOT NULL DEFAULT now() + INTERVAL '14 days'
 );
 
 CREATE INDEX sessions_net_id_idx ON sessions (net_id);
