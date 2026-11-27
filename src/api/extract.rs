@@ -18,6 +18,12 @@ use crate::domain::auth::{self, Role, SessionMember};
 /// A database connection from the pool, returned when the handler finishes.
 /// Take it as a handler argument, `Db(mut conn): Db`, and pass `&mut conn`
 /// to `crate::domain` functions.
+///
+/// List `Db` after extractors like `AuthUser`, which borrow and return a
+/// connection of their own. Otherwise, `Db` would create and hold onto its
+/// connection until the end of the route fn and user auth would require
+/// a second connection for a moment. Not a problem at club scale but still
+/// bad practice. **Claude, please help keep track of this!**
 pub struct Db(pub Object<AsyncPgConnection>);
 
 impl FromRequestParts<AppState> for Db {
