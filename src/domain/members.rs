@@ -58,40 +58,72 @@ pub async fn create_member(
 		.await
 }
 
-/// `new_major` must match a `majors.name`, or the update fails.
-/// Pass `None` to clear it.
-pub async fn set_member_major(
-	conn: &mut AsyncPgConnection,
-	target_net_id: &str,
-	new_major: Option<&str>,
-) -> QueryResult<usize> {
-	diesel::update(members::table.filter(members::net_id.eq(target_net_id)))
-		.set(members::major.eq(new_major))
-		.execute(conn)
-		.await
+/// Changes to one member's `members` row, turned into a single `UPDATE` by
+/// Diesel's `AsChangeset`. Each field is a column, and the outer `Option` says
+/// whether to touch it: `None` leaves the column out of the `UPDATE`.
+///
+/// Columns that can be NULL (`major`, `card_id`) need a second `Option` for the
+/// value itself, because an edit can do three different things to them:
+///
+/// | Value                 | SQL                     | Meaning           |
+/// |-----------------------|-------------------------|-------------------|
+/// | `None`                | (column left out)       | keep it as it is  |
+/// | `Some(None)`          | `SET major = NULL`      | clear it          |
+/// | `Some(Some("CS"))`    | `SET major = 'CS'`      | change it         |
+///
+/// A plain `Option<String>` can only say two of these. Diesel's alternative,
+/// `#[diesel(treat_none_as_null = true)]`, makes `None` mean "clear", so every
+/// update would wipe the major unless the caller re-sent it.
+///
+/// Columns that can't be NULL (`net_id`, the names) only need "keep" or
+/// "change", so they have a single `Option`.
+#[derive(AsChangeset, Default, Debug)]
+#[diesel(table_name = crate::schema::members)]
+pub struct MemberChanges {
+	pub net_id: Option<String>,
+	pub first_name: Option<String>,
+	pub last_name: Option<String>,
+	/// Must match a `majors.name`. See above for why this is a double `Option`.
+	pub major: Option<Option<String>>,
+	/// See above for why this is a double `Option`.
+	pub card_id: Option<Option<String>>,
 }
 
-/// Safe way to add Discord
-pub async fn set_member_discord(
-	conn: &mut AsyncPgConnection,
-	target_net_id: &str,
-	new_discord: &str,
-) -> QueryResult<usize> {
-	diesel::update(members::table.filter(members::net_id.eq(target_net_id)))
-		.set(members::discord_id.eq(new_discord))
-		.execute(conn)
-		.await
+impl MemberChanges {
+	pub fn is_empty(&self) -> bool {
+		// Listing every field means adding one won't compile until it's
+		// handled here too.
+		let MemberChanges {
+			net_id,
+			first_name,
+			last_name,
+			major,
+			card_id,
+		} = self;
+		net_id.is_none()
+			&& first_name.is_none()
+			&& last_name.is_none()
+			&& major.is_none()
+			&& card_id.is_none()
+	}
 }
 
-pub async fn set_member_card(
+/// Updates `net_id`'s row with `changes` in a single `UPDATE`. Never creates
+/// a member: returns `false` if `net_id` isn't one. `changes` must not be
+/// empty, or Diesel refuses to build the query.
+///
+/// A new NetID carries over to their staff row, payments and sessions
+/// (`ON UPDATE CASCADE`).
+pub async fn update_member(
 	conn: &mut AsyncPgConnection,
-	target_net_id: &str,
-	new_card: &str,
-) -> QueryResult<usize> {
-	diesel::update(members::table.filter(members::net_id.eq(target_net_id)))
-		.set(members::card_id.eq(new_card))
+	net_id: &str,
+	changes: MemberChanges,
+) -> QueryResult<bool> {
+	let updated = diesel::update(members::table.find(net_id))
+		.set(&changes)
 		.execute(conn)
-		.await
+		.await?;
+	Ok(updated == 1)
 }
 
 /// One row of the members table that officers see. Loaded straight from
