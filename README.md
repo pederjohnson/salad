@@ -19,7 +19,7 @@ Features of this app vary heavily with the category of user:
 
 ## General Members
 
-SALAD does not manage authentication for general members. Thus, they can only make membership payments (only valid for members who have linked their Discord and NetID) or self-check-in for events (if a QR code is provided).
+Currently, unprivileged members can only make membership payments (only valid for members who have linked their Discord and NetID) or self-check-in for events (if a QR code is provided).
 
 ## Leads
 
@@ -44,6 +44,7 @@ All active officers have full admin permissions. Through the web app, they can:
 - Define the membership fees per semester
 - Officiate membership payments via cash transaction
 - All features given to leaders as if they were associated with all projects
+- All features given to general members
 
 # Development
 
